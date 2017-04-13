@@ -1,0 +1,3 @@
+[submodule "SOMPY"]
+	path = SOMPY
+	url = https://github.com/sevamoo/SOMPY.git
