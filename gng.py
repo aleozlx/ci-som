@@ -1,10 +1,26 @@
-# coding: utf-8
-
 import numpy as np
 from scipy import spatial
 import networkx as nx
 import matplotlib.pyplot as plt
 from sklearn import decomposition
+
+def find_nearest_units(network, observation):
+    distance = []
+    for u, attributes in network.nodes(data=True):
+        vector = attributes['vector']
+        dist = spatial.distance.euclidean(vector, observation)
+        distance.append((u, dist))
+    distance.sort(key=lambda x: x[1])
+    ranking = [u for u, dist in distance]
+    return ranking
+
+def prune_connections(network, a_max):
+    for u, v, attributes in network.edges(data=True):
+        if attributes['age'] > a_max:
+            network.remove_edge(u, v)
+    for u in network.nodes():
+        if network.degree(u) == 0:
+            network.remove_node(u)
 
 class GrowingNeuralGas:
     def __init__(self, input_data):
@@ -13,24 +29,6 @@ class GrowingNeuralGas:
         self.units_created = 0
         plt.style.use('ggplot')
 
-    def find_nearest_units(self, observation):
-        distance = []
-        for u, attributes in self.network.nodes(data=True):
-            vector = attributes['vector']
-            dist = spatial.distance.euclidean(vector, observation)
-            distance.append((u, dist))
-        distance.sort(key=lambda x: x[1])
-        ranking = [u for u, dist in distance]
-        return ranking
-
-    def prune_connections(self, a_max):
-        for u, v, attributes in self.network.edges(data=True):
-            if attributes['age'] > a_max:
-                self.network.remove_edge(u, v)
-        for u in self.network.nodes():
-            if self.network.degree(u) == 0:
-                self.network.remove_node(u)
-
     def fit_network(self, e_b, e_n, a_max, l, a, d, passes=1, plot_evolution=False):
         # logging variables
         accumulated_local_error = []
@@ -42,6 +40,8 @@ class GrowingNeuralGas:
         # 0. start with two units a and b at random position w_a and w_b
         w_a = [np.random.uniform(-2, 2) for _ in range(np.shape(self.data)[1])]
         w_b = [np.random.uniform(-2, 2) for _ in range(np.shape(self.data)[1])]
+        print('w_a', w_a)
+        print('w_b', w_b)
         self.network = nx.Graph()
         self.network.add_node(self.units_created, vector=w_a, error=0)
         self.units_created += 1
@@ -55,7 +55,7 @@ class GrowingNeuralGas:
             steps = 0
             for observation in self.data:
                 # 2. find the nearest unit s_1 and the second nearest unit s_2
-                nearest_units = self.find_nearest_units(observation)
+                nearest_units = find_nearest_units(self.network, observation)
                 s_1 = nearest_units[0]
                 s_2 = nearest_units[1]
                 # 3. increment the age of all edges emanating from s_1
@@ -75,7 +75,7 @@ class GrowingNeuralGas:
                 self.network.add_edge(s_1, s_2, age=0)
                 # 7. remove edges with an age larger than a_max
                 #    if this results in units having no emanating edges, remove them as well
-                self.prune_connections(a_max)
+                prune_connections(self.network, a_max)
                 # 8. if the number of steps so far is an integer multiple of parameter l, insert a new unit
                 steps += 1
                 if steps % l == 0:
@@ -163,18 +163,18 @@ class GrowingNeuralGas:
             cluster += 1
         clustered_data = []
         for observation in self.data:
-            nearest_units = self.find_nearest_units(observation)
+            nearest_units = find_nearest_units(self.network, observation)
             s = nearest_units[0]
             clustered_data.append((observation, unit_to_cluster[s]))
         return clustered_data
 
-    def reduce_dimension(self, clustered_data):
-        transformed_clustered_data = []
-        svd = decomposition.PCA(n_components=2)
-        transformed_observations = svd.fit_transform(self.data)
-        for i in range(len(clustered_data)):
-            transformed_clustered_data.append((transformed_observations[i], clustered_data[i][1]))
-        return transformed_clustered_data
+    # def reduce_dimension(self, clustered_data):
+    #     transformed_clustered_data = []
+    #     svd = decomposition.PCA(n_components=2)
+    #     transformed_observations = svd.fit_transform(self.data)
+    #     for i in range(len(clustered_data)):
+    #         transformed_clustered_data.append((transformed_observations[i], clustered_data[i][1]))
+    #     return transformed_clustered_data
 
     def plot_clusters(self, clustered_data):
         number_of_clusters = nx.number_connected_components(self.network)
@@ -192,37 +192,18 @@ class GrowingNeuralGas:
     def compute_global_error(self):
         global_error = 0
         for observation in self.data:
-            nearest_units = self.find_nearest_units(observation)
+            nearest_units = find_nearest_units(self.network, observation)
             s_1 = nearest_units[0]
             global_error += spatial.distance.euclidean(observation, self.network.node[s_1]['vector'])**2
         return global_error
 
-
-class NeuralGas:
+class vGNG(object):
     def __init__(self, input_data):
         self.network = None
         self.data = input_data
         self.units_created = 0
         plt.style.use('ggplot')
 
-    def find_nearest_units(self, observation):
-        distance = []
-        for u, attributes in self.network.nodes(data=True):
-            vector = attributes['vector']
-            dist = spatial.distance.euclidean(vector, observation)
-            distance.append((u, dist))
-        distance.sort(key=lambda x: x[1])
-        ranking = [u for u, dist in distance]
-        return ranking
-
-    def prune_connections(self, a_max):
-        for u, v, attributes in self.network.edges(data=True):
-            if attributes['age'] > a_max:
-                self.network.remove_edge(u, v)
-        for u in self.network.nodes():
-            if self.network.degree(u) == 0:
-                self.network.remove_node(u)
-
     def fit_network(self, e_b, e_n, a_max, l, a, d, passes=1, plot_evolution=False):
         # logging variables
         accumulated_local_error = []
@@ -234,14 +215,13 @@ class NeuralGas:
         # 0. start with two units a and b at random position w_a and w_b
         w_a = [np.random.uniform(-2, 2) for _ in range(np.shape(self.data)[1])]
         w_b = [np.random.uniform(-2, 2) for _ in range(np.shape(self.data)[1])]
+        print('w_a', w_a)
+        print('w_b', w_b)
         self.network = nx.Graph()
         self.network.add_node(self.units_created, vector=w_a, error=0)
         self.units_created += 1
         self.network.add_node(self.units_created, vector=w_b, error=0)
         self.units_created += 1
-        # self.network.add_node(self.units_created, vector=w_b, error=0)
-        # self.units_created += 1
-        print("NG")
         # 1. iterate through the data
         sequence = 0
         for p in range(passes):
@@ -250,7 +230,7 @@ class NeuralGas:
             steps = 0
             for observation in self.data:
                 # 2. find the nearest unit s_1 and the second nearest unit s_2
-                nearest_units = self.find_nearest_units(observation)
+                nearest_units = find_nearest_units(self.network, observation)
                 s_1 = nearest_units[0]
                 s_2 = nearest_units[1]
                 # 3. increment the age of all edges emanating from s_1
@@ -270,7 +250,7 @@ class NeuralGas:
                 self.network.add_edge(s_1, s_2, age=0)
                 # 7. remove edges with an age larger than a_max
                 #    if this results in units having no emanating edges, remove them as well
-                self.prune_connections(a_max)
+                prune_connections(self.network, a_max)
                 # 8. if the number of steps so far is an integer multiple of parameter l, insert a new unit
                 steps += 1
                 if steps % l == 0:
@@ -358,18 +338,10 @@ class NeuralGas:
             cluster += 1
         clustered_data = []
         for observation in self.data:
-            nearest_units = self.find_nearest_units(observation)
+            nearest_units = find_nearest_units(self.network, observation)
             s = nearest_units[0]
             clustered_data.append((observation, unit_to_cluster[s]))
         return clustered_data
-
-    def reduce_dimension(self, clustered_data):
-        transformed_clustered_data = []
-        svd = decomposition.PCA(n_components=2)
-        transformed_observations = svd.fit_transform(self.data)
-        for i in range(len(clustered_data)):
-            transformed_clustered_data.append((transformed_observations[i], clustered_data[i][1]))
-        return transformed_clustered_data
 
     def plot_clusters(self, clustered_data):
         number_of_clusters = nx.number_connected_components(self.network)
@@ -387,7 +359,7 @@ class NeuralGas:
     def compute_global_error(self):
         global_error = 0
         for observation in self.data:
-            nearest_units = self.find_nearest_units(observation)
+            nearest_units = find_nearest_units(self.network, observation)
             s_1 = nearest_units[0]
             global_error += spatial.distance.euclidean(observation, self.network.node[s_1]['vector'])**2
         return global_error
