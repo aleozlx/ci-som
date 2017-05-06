@@ -66,7 +66,8 @@ class vGNG(object):
         self._network = v_network_ctor(2, DIM_DATA)
         (W, C, T, E) = self._network
         self.N_units = W.shape[0]
-
+        # clusters of neurons and data
+        self._clusters = None
         self.clusters = None
 
     def fit(self, e_b, e_n, MAX_AGE, STEP_NEW_UNIT, a, d, N_PASS=1, plot_evolution=False):
@@ -90,8 +91,7 @@ class vGNG(object):
                 T[:,i0] = T[i0,:]
                 # 4. add the squared distance between the observation and the nearest unit in input space
                 difference = observation - W[i1]
-                distance = np.linalg.norm(difference, ord = 2)
-                E[i0] += distance ** 2
+                E[i0] += np.linalg.norm(difference, ord = 2) ** 2
                 # 5 .move s_1 and its direct topological neighbors towards the observation by the fractions
                 #    e_b and e_n, respectively, of the total distance
                 W[i1] += e_b * difference
@@ -151,7 +151,6 @@ class vGNG(object):
         plt.plot(range(len(global_error)), global_error)
         plt.savefig('visualization/global_error.png')
         self._network = (W, C, T, E)
-        self._update_clusters(C)
 
     def plot_network(self, file_path, weights, connections):
         plt.clf()
@@ -165,36 +164,48 @@ class vGNG(object):
             plt.plot(edge[:, 0], edge[:, 1], 'k-', alpha = 0.9)
         plt.savefig(file_path)
 
-    def _update_clusters(self, connections):
+    def update_clusters(self, outlier_tolerance = 1):
+        (W, C, T, E) = self._network
         v = np.zeros((self.N_units, ), dtype = bool)
-        self.clusters = list()
+        self._clusters = list()
         from queue import Queue
         bfs_queue = Queue()
         while np.any(~v):
             root = np.where(~v)[0][0]
             bfs_queue.put(root); v[root] = True
             current_cluster = set()
-            self.clusters.append(current_cluster)
+            self._clusters.append(current_cluster)
             while not bfs_queue.empty():
                 p = bfs_queue.get(); current_cluster.add(p)
-                neighbors = np.where(connections[p])[0]
+                neighbors = np.where(C[p])[0]
                 new_nodes = np.where(~v[neighbors])[0]
                 current_cluster.update(neighbors[new_nodes])
                 for i in neighbors[new_nodes]:
                     bfs_queue.put(i)
                 v[neighbors[new_nodes]] = True
 
-    def remove_outliers(self):
-        self.clusters = list(filter(lambda cluster: len(cluster)>2, self.clusters))
+        self._clusters = list(filter(lambda cluster: len(cluster)>outlier_tolerance, self._clusters))
+        self.clusters = list(set() for i in self._clusters)
+        cluster_index = { unit: self.clusters[ci]
+            for ci, cluster in enumerate(self._clusters) for unit in cluster}
+        for i, v in enumerate(self.data):
+            ranked_indices = np.argsort(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1))
+            for j in ranked_indices:
+                if j in cluster_index:
+                    cluster_index[j].add(i)
+                    break
 
-    def plot_clusters(self, clustered_data):
+    def plot_clusters(self):
+        import matplotlib.colors
+        import matplotlib.cm
         plt.clf()
         plt.title('Cluster affectation')
-        color = ['r', 'b', 'g', 'k', 'm', 'r', 'b', 'g', 'k', 'm']
-        for i in range(nx.number_connected_components(self.network)):
-            observations = [observation for observation, s in clustered_data if s == i]
-            if len(observations) > 0:
-                observations = np.array(observations)
-                plt.scatter(observations[:, 0], observations[:, 1], color=color[i], label='cluster #'+str(i))
+        scalarMap = matplotlib.cm.ScalarMappable(
+            norm = matplotlib.colors.Normalize(vmin=0, vmax=len(self.clusters)-1),
+            cmap= 'viridis')
+        for i, cluster in enumerate(self.clusters):
+            points = self.data[list(cluster), :]
+            plt.scatter(points[:, 0], points[:, 1],
+                color = scalarMap.to_rgba(i), label = 'cluster #'+str(i))
         plt.legend()
         plt.savefig('visualization/clusters.png')
