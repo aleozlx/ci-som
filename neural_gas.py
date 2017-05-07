@@ -199,7 +199,7 @@ class vGNG(vSOMBase):
                         E[q] *= ERR_DECAY_LOCAL
                         E[-1] = E[q]
 
-                # 9. decrease all error variables by multiplying them with a constant d
+                # 9. decrease all error variables by multiplying them with a constant
                 total_units.append(self.N_units)
                 E *= ERR_DECAY_GLOBAL
             global_error.append(sum(np.min(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1)) for v in self.data))
@@ -246,7 +246,6 @@ class vNG(vSOMBase):
                 C[i0, i1] = C[i1, i0] = True
                 T[i0, i1] = T[i1, i0] = 0
                 # 7. remove edges with an age larger than MAX_AGE
-                #    if this results in units having no emanating edges, remove them as well
                 expired = T > MAX_AGE
                 C[expired] = False; T[expired] = 0
                 # 8. Update plots
@@ -255,7 +254,7 @@ class vNG(vSOMBase):
                     if plot_evolution:
                         self.plot_network('visualization/sequence/%s.png' % str(sequence), W, C)
                     sequence += 1
-                # 9. decrease all error variables by multiplying them with a constant d
+                # 9. decrease all error variables by multiplying them with a constant
                 total_units.append(self.N_units)
                 E *= ERR_DECAY_GLOBAL
             global_error.append(sum(np.min(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1)) for v in self.data))
@@ -265,3 +264,52 @@ class vNG(vSOMBase):
         plt.plot(range(len(global_error)), global_error)
         plt.savefig('visualization/global_error.png')
         self._network = (W, C, T, E)
+
+class vSOM(vSOMBase):
+    """ Self organizing map (vectorized online update) """
+
+    def __init__(self, input_data, N_units = 32):
+        super(vSOM, self).__init__(input_data, N_units)
+        self.reconnect(lambda C: np.zeros_like(C, dtype = bool))
+
+    def fit(self, E_NEAREST, E_NEIBOR, STEP_NEW_UNIT, ERR_DECAY_GLOBAL, N_PASS, plot_evolution=False):
+        global_error = []; total_units = []
+        DIM_DATA = self.data.shape[1]
+        (W, C, T, E) = self._network
+
+        sequence = 0
+        for p in range(N_PASS):
+            print('   Pass #%d' % (p + 1))
+            np.random.shuffle(self.data)
+            steps = 0
+            for observation in self.data:
+                # 2. find the nearest unit and the second
+                ranked_indices = np.argsort(np.linalg.norm(W-observation[np.newaxis, ...], ord = 2, axis = 1))
+                i0 = ranked_indices[0]
+                i1 = ranked_indices[1]
+                # 4. add the squared distance between the observation and i0 in feature space
+                difference = observation - W[i0]
+                E[i0] += np.linalg.norm(difference, ord = 2) ** 2
+                # 5. move weights towards the observation
+                W[i0] += E_NEAREST * difference
+                W[C[i0]] += (E_NEIBOR * difference)[np.newaxis, ...]
+                # 8. Update plots
+                steps += 1
+                if steps % STEP_NEW_UNIT == 0:
+                    if plot_evolution:
+                        self.plot_network('visualization/sequence/%s.png' % str(sequence), W, C)
+                    sequence += 1
+                # 9. decrease all error variables by multiplying them with a constant
+                total_units.append(self.N_units)
+                E *= ERR_DECAY_GLOBAL
+            global_error.append(sum(np.min(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1)) for v in self.data))
+        plt.clf()
+        plt.title('Global error')
+        plt.xlabel('N_PASS')
+        plt.plot(range(len(global_error)), global_error)
+        plt.savefig('visualization/global_error.png')
+        self._network = (W, C, T, E)
+
+    def reconnect(self, f):
+        (W, C, T, E) = self._network
+        self._network = (W, f(C), T, E)
