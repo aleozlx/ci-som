@@ -6,8 +6,9 @@ plt.style.use('ggplot')
 def v_network_ctor(N_UNITS, DIM_DATA, copy_ref = None):
     """ Network constructor """
     if copy_ref:
-        # print('v_network_ctor copying', N_UNITS)
+        # Copy constructor
         _W, _C, _T, _E = copy_ref
+        # print('v_network_ctor copying', N_UNITS)
 
         # Weights
         W = np.zeros((N_UNITS, DIM_DATA))
@@ -24,7 +25,15 @@ def v_network_ctor(N_UNITS, DIM_DATA, copy_ref = None):
         # Errors
         E = np.zeros((N_UNITS, ))
         E[:_E.shape[0]] = _E
+    elif isinstance(N_UNITS, complex):
+        # Allocate space only
+        N_UNITS = int(N_UNITS.imag)
+        W = np.zeros((N_UNITS, DIM_DATA))
+        C = np.zeros((N_UNITS, N_UNITS), dtype = bool)
+        T = np.zeros(C.shape, dtype = int)
+        E = np.zeros((N_UNITS, ))
     else:
+        # Default constructor: random weights, fully connected
         W = np.random.rand(N_UNITS, DIM_DATA) * 4.0 - 2.0
         C = np.ones((N_UNITS, N_UNITS), dtype = bool)
         np.fill_diagonal(C, False)
@@ -60,6 +69,9 @@ class vSOMBase(object):
         # clusters of neurons and data
         self._clusters = None
         self.clusters = None
+
+    def reconnect(self, do_reconnect):
+        do_reconnect(*self._network)
 
     def plot_network(self, file_path, weights, connections):
         plt.clf()
@@ -268,9 +280,8 @@ class vNG(vSOMBase):
 class vSOM(vSOMBase):
     """ Self organizing map (vectorized online update) """
 
-    def __init__(self, input_data, N_units = 32):
+    def __init__(self, input_data, N_units):
         super(vSOM, self).__init__(input_data, N_units)
-        self.reconnect(lambda C: np.zeros_like(C, dtype = bool))
 
     def fit(self, E_NEAREST, E_NEIBOR, STEP_NEW_UNIT, ERR_DECAY_GLOBAL, N_PASS, plot_evolution=False):
         global_error = []; total_units = []
@@ -309,7 +320,3 @@ class vSOM(vSOMBase):
         plt.plot(range(len(global_error)), global_error)
         plt.savefig('visualization/global_error.png')
         self._network = (W, C, T, E)
-
-    def reconnect(self, f):
-        (W, C, T, E) = self._network
-        self._network = (W, f(C), T, E)
