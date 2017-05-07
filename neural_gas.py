@@ -33,19 +33,17 @@ def v_network_ctor(N_UNITS, DIM_DATA, copy_ref = None):
     return (W, C, T, E)
 
 def v_network_nonzero_degree(copy_ref):
-    return copy_ref
     _W, _C, _T, _E = copy_ref
     nz = np.array(np.sum(_C, axis = 1), dtype = bool)
-    # print('v_network_nonzero_degree', nz)
     if np.all(nz):
         return copy_ref
     else:
         print('shrinking down')
         new_network = (_W[nz, :].copy(), _C[nz, :][:, nz].copy(), _T[nz, :][:, nz].copy(), _E[nz].copy())
-        print('W', _W.shape, new_network[0].shape)
-        print('C', _C.shape, new_network[1].shape)
-        print('T', _T.shape, new_network[2].shape)
-        print('E', _E.shape, new_network[3].shape)
+        # print('W', _W.shape, new_network[0].shape)
+        # print('C', _C.shape, new_network[1].shape)
+        # print('T', _T.shape, new_network[2].shape)
+        # print('E', _E.shape, new_network[3].shape)
         return new_network
 
 class vSOMBase(object):
@@ -152,11 +150,11 @@ class vGNG(vSOMBase):
                 T[i0, C[i0]] += 1
                 T[:,i0] = T[i0,:]
                 # 4. add the squared distance between the observation and i0 in feature space
-                difference = observation - W[i1]
+                difference = observation - W[i0]
                 E[i0] += np.linalg.norm(difference, ord = 2) ** 2
                 # 5. move i0 and its direct topological neighbors towards the observation
-                W[i1] += E_NEAREST * difference
-                W[C[i1]] += (E_NEIBOR * difference)[np.newaxis, ...]
+                W[i0] += E_NEAREST * difference
+                W[C[i0]] += (E_NEIBOR * difference)[np.newaxis, ...]
                 # 6. if i0 and i1 are connected by an edge, set the age of this edge to zero
                 #    if such an edge doesn't exist, create it
                 C[i0, i1] = C[i1, i0] = True
@@ -237,11 +235,11 @@ class vNG(vSOMBase):
                 T[i0, C[i0]] += 1
                 T[:,i0] = T[i0,:]
                 # 4. add the squared distance between the observation and i0 in feature space
-                difference = observation - W[i1]
+                difference = observation - W[i0]
                 E[i0] += np.linalg.norm(difference, ord = 2) ** 2
                 # 5. move i0 and its direct topological neighbors towards the observation
-                W[i1] += e_epsilon * difference
-                W[C[i1]] += (e_lambda * difference)[np.newaxis, ...]
+                W[i0] += e_epsilon * difference
+                W[C[i0]] += (e_lambda * difference)[np.newaxis, ...]
                 # 6. if i0 and i1 are connected by an edge, set the age of this edge to zero
                 #    if such an edge doesn't exist, create it
                 C[i0, i1] = C[i1, i0] = True
@@ -250,8 +248,6 @@ class vNG(vSOMBase):
                 #    if this results in units having no emanating edges, remove them as well
                 expired = T > MAX_AGE
                 C[expired] = False; T[expired] = 0
-                # (W, C, T, E) = v_network_nonzero_degree((W, C, T, E))
-                # self.N_units = W.shape[0]
                 # 8. Update plots
                 steps += 1
                 if steps % STEP_NEW_UNIT == 0:
