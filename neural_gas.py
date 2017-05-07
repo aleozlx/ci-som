@@ -216,7 +216,7 @@ class vNG(vSOMBase):
     def __init__(self, input_data, N_units = 32):
         super(vNG, self).__init__(input_data, N_units)
 
-    def fit(self, e_epsilon, e_lambda, MAX_AGE, STEP_NEW_UNIT, a, d, N_PASS, plot_evolution=False):
+    def fit(self, e_epsilon, e_lambda, MAX_AGE, STEP_NEW_UNIT, ERR_DECAY_GLOBAL, N_PASS, plot_evolution=False):
         global_error = []; total_units = []
         DIM_DATA = self.data.shape[1]
         (W, C, T, E) = self._network
@@ -237,9 +237,10 @@ class vNG(vSOMBase):
                 # 4. add the squared distance between the observation and i0 in feature space
                 difference = observation - W[i0]
                 E[i0] += np.linalg.norm(difference, ord = 2) ** 2
-                # 5. move i0 and its direct topological neighbors towards the observation
-                W[i0] += e_epsilon * difference
-                W[C[i0]] += (e_lambda * difference)[np.newaxis, ...]
+                # 5. move weights towards the observation
+                coefs = (e_epsilon * np.exp(-np.arange(self.N_units) / e_lambda))
+                # print('coefs', coefs[:4])
+                W[ranked_indices] += coefs[..., np.newaxis] * (observation[np.newaxis, ...] - W[ranked_indices])
                 # 6. if i0 and i1 are connected by an edge, set the age of this edge to zero
                 #    if such an edge doesn't exist, create it
                 C[i0, i1] = C[i1, i0] = True
@@ -256,7 +257,7 @@ class vNG(vSOMBase):
                     sequence += 1
                 # 9. decrease all error variables by multiplying them with a constant d
                 total_units.append(self.N_units)
-                E *= d
+                E *= ERR_DECAY_GLOBAL
             global_error.append(sum(np.min(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1)) for v in self.data))
         plt.clf()
         plt.title('Global error')
