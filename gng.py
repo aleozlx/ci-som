@@ -1,32 +1,7 @@
 import numpy as np
-# import networkx as nx
 import matplotlib.pyplot as plt
 
 plt.style.use('ggplot')
-
-def find_nearest_units(network, observation):
-    distance = []
-    for u, attributes in network.nodes(data=True):
-        vector = attributes['vector']
-        dist = spatial.distance.euclidean(vector, observation)
-        distance.append((u, dist))
-    distance.sort(key=lambda x: x[1])
-    ranking = [u for u, dist in distance]
-    return ranking
-
-class GrowingNeuralGas:
-    def plot_clusters(self, clustered_data):
-        number_of_clusters = nx.number_connected_components(self.network)
-        plt.clf()
-        plt.title('Cluster affectation')
-        color = ['r', 'b', 'g', 'k', 'm', 'r', 'b', 'g', 'k', 'm']
-        for i in range(number_of_clusters):
-            observations = [observation for observation, s in clustered_data if s == i]
-            if len(observations) > 0:
-                observations = np.array(observations)
-                plt.scatter(observations[:, 0], observations[:, 1], color=color[i], label='cluster #'+str(i))
-        plt.legend()
-        plt.savefig('visualization/clusters.png')
 
 def v_network_ctor(N_UNITS, DIM_DATA, copy_ref = None):
     """ Network constructor """
@@ -51,13 +26,75 @@ def v_network_ctor(N_UNITS, DIM_DATA, copy_ref = None):
         E[:_E.shape[0]] = _E
     return (W, C, T, E)
 
-class vGNG(object):
+class vSOMBase(object):
+    """ Abstract class for SOM-like algorithms """
+
+    def plot_network(self, file_path, weights, connections):
+        plt.clf()
+        plt.scatter(self.data[:, 0], self.data[:, 1], c='r')
+        plt.scatter(weights[:, 0], weights[:, 1], c='b', marker='x')
+        edge_ctor = lambda edge: edge if edge[0]<edge[1] else (edge[1], edge[0])
+        edges = set(edge_ctor((i,j))
+            for i in range(connections.shape[0]) for j in range(connections.shape[1]) if connections[i,j] and i!=j)
+        points = weights[np.array(list(edges))]
+        for edge in points:
+            plt.plot(edge[:, 0], edge[:, 1], 'k-', alpha = 0.9)
+        plt.savefig(file_path)
+
+    def update_clusters(self, outlier_tolerance = 1):
+        (W, C, T, E) = self._network
+        v = np.zeros((self.N_units, ), dtype = bool)
+        self._clusters = list()
+        from queue import Queue
+        bfs_queue = Queue()
+        while np.any(~v):
+            root = np.where(~v)[0][0]
+            bfs_queue.put(root); v[root] = True
+            current_cluster = set()
+            self._clusters.append(current_cluster)
+            while not bfs_queue.empty():
+                p = bfs_queue.get(); current_cluster.add(p)
+                neighbors = np.where(C[p])[0]
+                new_nodes = np.where(~v[neighbors])[0]
+                current_cluster.update(neighbors[new_nodes])
+                for i in neighbors[new_nodes]:
+                    bfs_queue.put(i)
+                v[neighbors[new_nodes]] = True
+
+        self._clusters = list(filter(lambda cluster: len(cluster)>outlier_tolerance, self._clusters))
+        self.clusters = list(set() for i in self._clusters)
+        cluster_index = { unit: self.clusters[ci]
+            for ci, cluster in enumerate(self._clusters) for unit in cluster}
+        for i, v in enumerate(self.data):
+            ranked_indices = np.argsort(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1))
+            for j in ranked_indices:
+                if j in cluster_index:
+                    cluster_index[j].add(i)
+                    break
+
+    def plot_clusters(self):
+        import matplotlib.colors
+        import matplotlib.cm
+        plt.clf()
+        plt.title('Cluster affectation')
+        scalarMap = matplotlib.cm.ScalarMappable(
+            norm = matplotlib.colors.Normalize(vmin=0, vmax=len(self.clusters)-1),
+            cmap= 'viridis')
+        for i, cluster in enumerate(self.clusters):
+            points = self.data[list(cluster), :]
+            plt.scatter(points[:, 0], points[:, 1],
+                color = scalarMap.to_rgba(i), label = 'cluster #'+str(i))
+        plt.legend()
+        plt.savefig('visualization/clusters.png')
+
+class vGNG(vSOMBase):
     """ Growing Neural Gas (vectorized online update) 
      ref:
         https://github.com/AdrienGuille/GrowingNeuralGas
         http://stackoverflow.com/questions/34072772/what-is-the-difference-between-self-organizing-maps-and-neural-gas
         https://www.quora.com/When-I-should-I-use-competitive-learning-or-neural-gas-algorithms-instead-of-k-means-to-cluster-data
     """
+
     def __init__(self, input_data):
         self.data = input_data
 
@@ -152,60 +189,62 @@ class vGNG(object):
         plt.savefig('visualization/global_error.png')
         self._network = (W, C, T, E)
 
-    def plot_network(self, file_path, weights, connections):
-        plt.clf()
-        plt.scatter(self.data[:, 0], self.data[:, 1], c='r')
-        plt.scatter(weights[:, 0], weights[:, 1], c='b', marker='x')
-        edge_ctor = lambda edge: edge if edge[0]<edge[1] else (edge[1], edge[0])
-        edges = set(edge_ctor((i,j))
-            for i in range(connections.shape[0]) for j in range(connections.shape[1]) if connections[i,j] and i!=j)
-        points = weights[np.array(list(edges))]
-        for edge in points:
-            plt.plot(edge[:, 0], edge[:, 1], 'k-', alpha = 0.9)
-        plt.savefig(file_path)
+class vNG(vSOMBase):
+    """ Neural Gas (vectorized online update) """
 
-    def update_clusters(self, outlier_tolerance = 1):
+    def __init__(self, input_data, N_units = 32):
+        self.data = input_data
+
+        # start with two units a and b at random positions
+        DIM_DATA = self.data.shape[1]
+        self._network = v_network_ctor(N_units, DIM_DATA)
         (W, C, T, E) = self._network
-        v = np.zeros((self.N_units, ), dtype = bool)
-        self._clusters = list()
-        from queue import Queue
-        bfs_queue = Queue()
-        while np.any(~v):
-            root = np.where(~v)[0][0]
-            bfs_queue.put(root); v[root] = True
-            current_cluster = set()
-            self._clusters.append(current_cluster)
-            while not bfs_queue.empty():
-                p = bfs_queue.get(); current_cluster.add(p)
-                neighbors = np.where(C[p])[0]
-                new_nodes = np.where(~v[neighbors])[0]
-                current_cluster.update(neighbors[new_nodes])
-                for i in neighbors[new_nodes]:
-                    bfs_queue.put(i)
-                v[neighbors[new_nodes]] = True
+        self.N_units = W.shape[0]
+        # clusters of neurons and data
+        self._clusters = None
+        self.clusters = None
 
-        self._clusters = list(filter(lambda cluster: len(cluster)>outlier_tolerance, self._clusters))
-        self.clusters = list(set() for i in self._clusters)
-        cluster_index = { unit: self.clusters[ci]
-            for ci, cluster in enumerate(self._clusters) for unit in cluster}
-        for i, v in enumerate(self.data):
-            ranked_indices = np.argsort(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1))
-            for j in ranked_indices:
-                if j in cluster_index:
-                    cluster_index[j].add(i)
-                    break
+    def fit(self, e_b, e_n, MAX_AGE, STEP_NEW_UNIT, a, d, N_PASS=1, plot_evolution=False):
+        global_error = []; total_units = []
+        DIM_DATA = self.data.shape[1]
+        (W, C, T, E) = self._network
 
-    def plot_clusters(self):
-        import matplotlib.colors
-        import matplotlib.cm
+        # 1. iterate through the data
+        sequence = 0
+        for p in range(N_PASS):
+            print('   Pass #%d' % (p + 1))
+            np.random.shuffle(self.data)
+            for observation in self.data:
+                # 2. find the nearest unit s_1 and the second nearest unit s_2
+                ranked_indices = np.argsort(np.linalg.norm(W-observation[np.newaxis, ...], ord = 2, axis = 1))
+                i0 = ranked_indices[0]
+                i1 = ranked_indices[1]
+                # 3. increment the age of all edges emanating from s_1
+                T[i0, C[i0]] += 1
+                T[:,i0] = T[i0,:]
+                # 4. add the squared distance between the observation and the nearest unit in input space
+                difference = observation - W[i1]
+                E[i0] += np.linalg.norm(difference, ord = 2) ** 2
+                # 5 .move s_1 and its direct topological neighbors towards the observation by the fractions
+                #    e_b and e_n, respectively, of the total distance
+                W[i1] += e_b * difference
+                W[C[i1]] += (e_n * difference)[np.newaxis, ...]
+                # 6. if s_1 and s_2 are connected by an edge, set the age of this edge to zero
+                #    if such an edge doesn't exist, create it
+                C[i0, i1] = C[i1, i0] = True
+                T[i0, i1] = T[i1, i0] = 0
+                # 7. remove edges with an age larger than MAX_AGE
+                #    if this results in units having no emanating edges, remove them as well
+                expired = T > MAX_AGE
+                C[expired] = False
+                T[expired] = 0
+                # 9. decrease all error variables by multiplying them with a constant d
+                total_units.append(self.N_units)
+                E *= d
+            global_error.append(sum(np.min(np.linalg.norm(W-v[np.newaxis, ...], ord = 2, axis = 1)) for v in self.data))
         plt.clf()
-        plt.title('Cluster affectation')
-        scalarMap = matplotlib.cm.ScalarMappable(
-            norm = matplotlib.colors.Normalize(vmin=0, vmax=len(self.clusters)-1),
-            cmap= 'viridis')
-        for i, cluster in enumerate(self.clusters):
-            points = self.data[list(cluster), :]
-            plt.scatter(points[:, 0], points[:, 1],
-                color = scalarMap.to_rgba(i), label = 'cluster #'+str(i))
-        plt.legend()
-        plt.savefig('visualization/clusters.png')
+        plt.title('Global error')
+        plt.xlabel('N_PASS')
+        plt.plot(range(len(global_error)), global_error)
+        plt.savefig('visualization/global_error.png')
+        self._network = (W, C, T, E)
