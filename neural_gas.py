@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-plt.style.use('ggplot')
+# plt.style.use('ggplot')
 
 def v_network_ctor(N_UNITS, DIM_DATA, copy_ref = None):
     """ Network constructor """
@@ -294,10 +294,8 @@ class vSOM(vSOMBase):
             np.random.shuffle(self.data)
             steps = 0
             for observation in self.data:
-                # 2. find the nearest unit and the second
-                ranked_indices = np.argsort(np.linalg.norm(W-observation[np.newaxis, ...], ord = 2, axis = 1))
-                i0 = ranked_indices[0]
-                i1 = ranked_indices[1]
+                # 2. find the nearest unit
+                i0 = np.argmin(np.linalg.norm(W-observation[np.newaxis, ...], ord = 2, axis = 1))
                 # 4. add the squared distance between the observation and i0 in feature space
                 difference = observation - W[i0]
                 E[i0] += np.linalg.norm(difference, ord = 2) ** 2
